@@ -336,8 +336,10 @@ static __u8 read_ioam6mode_type(const char *mode)
 static void print_encap_ioam6(FILE *fp, struct rtattr *encap)
 {
 	struct rtattr *tb[IOAM6_IPTUNNEL_MAX + 1];
+	struct ioam6_trace_gob_hdr *gob;
 	struct ioam6_trace_hdr *trace;
 	__u32 freq_k, freq_n;
+	__u32 gob_size;
 	__u8 mode;
 
 	parse_rtattr_nested(tb, IOAM6_IPTUNNEL_MAX, encap);
@@ -379,6 +381,14 @@ static void print_encap_ioam6(FILE *fp, struct rtattr *encap)
 	print_hex(PRINT_ANY, "type", "type %#08x ", ntohl(trace->type_be32) >> 8);
 	print_uint(PRINT_ANY, "ns", "ns %u ", ntohs(trace->namespace_id));
 	print_uint(PRINT_ANY, "size", "size %u ", trace->remlen * 4);
+
+	if (!trace->type.gob)
+		return;
+
+	gob = RTA_DATA(tb[IOAM6_IPTUNNEL_TRACE_GOB]);
+	gob_size = (ntohl(gob->hdr) >> 24) * 4;
+	/* Global-Opaque Block is preset, report the size of the trace data */
+	print_uint(PRINT_ANY, "gobsize", "gobsize %u ", gob_size);
 }
 
 static const char *seg6_action_names[SEG6_LOCAL_ACTION_MAX + 1] = {
@@ -1119,8 +1129,9 @@ static int parse_ioam6_freq(char *buf, __u32 *freq_k, __u32 *freq_n)
 static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 			     char ***argvp)
 {
+	__u16 trace_ns, trace_size = 0, gob_size = 0;
+	struct ioam6_trace_gob_hdr *gob;
 	int ns_found = 0, argc = *argcp;
-	__u16 trace_ns, trace_size = 0;
 	struct ioam6_trace_hdr *trace;
 	inet_prefix saddr, daddr;
 	char **argv = *argvp;
@@ -1245,6 +1256,27 @@ static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 
 			if (trace_size > IOAM6_TRACE_DATA_SIZE_MAX)
 				invarg("Trace size is too big", *argv);
+		} else if (strcmp(*argv, "gobsize") == 0) {
+			/* TODO: we need to support gobsize of 0 ? meaning that
+			 * we have only the header and no space for storing the
+			 * global opace data ? */
+			NEXT_ARG();
+
+			if (gob_size)
+				duparg2("gobsize", *argv);
+
+			if (get_u16(&gob_size, *argv, 0) || !gob_size)
+				invarg("Invalid Global-Opaque block trace size",
+				       *argv);
+
+			if (gob_size % 4)
+				invarg("Global-Opaque block trace size must be a 4-octet multiple",
+				       *argv);
+
+			/* Note that the gob_size / 4 must fit into 8 bits */
+			if (gob_size / 4 > IOAM6_TRACE_GOB_DATA_SIZE_MAX)
+				invarg("Globa-Opaque Trace size is too big",
+				       *argv);
 		} else {
 			break;
 		}
@@ -1265,6 +1297,8 @@ static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 	trace->namespace_id = htons(trace_ns);
 	trace->remlen = (__u8)(trace_size / 4);
 
+	trace->type.gob = !!gob_size;
+
 	if (rta_addattr32(rta, len, IOAM6_IPTUNNEL_FREQ_K, freq_k) ||
 	    rta_addattr32(rta, len, IOAM6_IPTUNNEL_FREQ_N, freq_n) ||
 	    rta_addattr8(rta, len, IOAM6_IPTUNNEL_MODE, mode) ||
@@ -1277,9 +1311,28 @@ static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 		return -1;
 	}
 
+	if (gob_size) {
+		gob = calloc(1, sizeof(*gob));
+		if (!gob) {
+			free(trace);
+			return -1;
+		}
+
+		gob->hdr = htonl((__u8)(gob_size / 4) << 24);
+
+		if (rta_addattr_l(rta, len, IOAM6_IPTUNNEL_TRACE_GOB, gob,
+				  sizeof(*gob))) {
+			free(gob);
+			free(trace);
+			return -1;
+		}
+	}
+
 	*argcp = argc + 1;
 	*argvp = argv - 1;
 
+	if (gob_size)
+		free(gob);
 	free(trace);
 	return 0;
 }
