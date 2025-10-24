@@ -211,11 +211,13 @@ static const struct bpf_cfg_ops bpf_cb_ops = {
 	.ebpf_cb = bpf_lwt_cb,
 };
 
-static int ioam6_gob_schema_parse_bpf(char *buf, size_t len,
+#define TO_RTATTR(_buf) (struct rtattr *)((void *)(_buf))
+
+static int ioam6_gob_schema_bpf_parse(char *obuf, size_t len,
 				      int *argcp, char ***argvp, int attr,
 				      const enum bpf_prog_type bpf_type)
 {
-	struct rtattr *rta = (void *)buf;
+	struct rtattr *rta = TO_RTATTR(obuf);
 	struct bpf_cfg_in cfg = {
 		.type = bpf_type,
 		.argc = *argcp,
@@ -243,8 +245,6 @@ static int ioam6_gob_schema_parse_bpf(char *buf, size_t len,
 	*argcp = cfg.argc;
 	*argvp = cfg.argv;
 
-	printf("ok parsed bpf\n");
-
 	return 0;
 }
 
@@ -271,8 +271,6 @@ static int ioam6_do_cmd(void)
 	}
 
 	req.n.nlmsg_type = genl_family;
-
-	printf("before opts.cmd\n");
 
 	switch (opts.cmd) {
 	case IOAM6_CMD_ADD_NAMESPACE:
@@ -310,7 +308,7 @@ static int ioam6_do_cmd(void)
 	case IOAM6_CMD_ADD_GOB_SCHEMA:
 		addattr32(&req.n, sizeof(req), IOAM6_ATTR_SC_ID, opts.gobsc_id);
 
-		rta = (void *)opts.buf;
+		rta = TO_RTATTR(opts.buf);
 		addraw_l(&req.n, BUF_SIZE, RTA_DATA(rta), RTA_PAYLOAD(rta));
 		break;
 	case IOAM6_CMD_DEL_GOB_SCHEMA:
@@ -473,8 +471,6 @@ int do_ioam6(int argc, char **argv)
 		}
 
 	} else if (strcmp(*argv, "gobschema") == 0) {
-		int bpf_ok = 0;
-
 		NEXT_ARG();
 
 		if (strcmp(*argv, "show") == 0) {
@@ -487,18 +483,13 @@ int do_ioam6(int argc, char **argv)
 				invarg("Invalid gobschema ID", *argv);
 
 			NEXT_ARG();
-			if (strcmp(*argv, "endpoint") != 0)
-				invarg("Missing endpoint\n", *argv);
 
-			NEXT_ARG();
-
-			if (ioam6_gob_schema_parse_bpf(opts.buf, BUF_SIZE,
+			if (ioam6_gob_schema_bpf_parse(opts.buf, BUF_SIZE,
 						       &argc, &argv,
 						       IOAM6_ATTR_GOB_SC_BPF,
 						       BPF_PROG_TYPE_LWT_IN) < 0)
 				exit(-1);
 
-			printf("done parsing\n");
 			opts.cmd = IOAM6_CMD_ADD_GOB_SCHEMA;
 
 		} else if (strcmp(*argv, "del") == 0) {
@@ -519,6 +510,5 @@ int do_ioam6(int argc, char **argv)
 		invarg("Unknown", *argv);
 	}
 
-	printf("before calling ioam6_do_cmd()\n");
 	return ioam6_do_cmd();
 }
