@@ -50,14 +50,19 @@ static int genl_family = -1;
 static struct {
 	bool monitor;
 	unsigned int cmd;
-	__u32 sc_id;
-	__u32 gobsc_id;
+	union {
+		__u32 sc_id;
+		__u32 gobsc_id;
+	};
 	__u32 ns_data;
 	__u64 ns_data_wide;
 	__u16 ns_id;
 	bool has_ns_data;
 	bool has_ns_data_wide;
-	bool sc_none;
+	union {
+		bool sc_none;
+		bool gobsc_none;
+	};
 	__u8 sc_data[IOAM6_MAX_SCHEMA_DATA_LEN];
 #define BUF_SIZE 512
 	char buf[BUF_SIZE];
@@ -298,12 +303,16 @@ static int ioam6_do_cmd(void)
 		addattr32(&req.n, sizeof(req), IOAM6_ATTR_SC_ID, opts.sc_id);
 		break;
 	case IOAM6_CMD_NS_SET_SCHEMA:
+	case IOAM6_CMD_NS_SET_GOB_SCHEMA:
 		addattr16(&req.n, sizeof(req), IOAM6_ATTR_NS_ID, opts.ns_id);
-		if (opts.sc_none)
+		if (opts.sc_none) {
 			addattr(&req.n, sizeof(req), IOAM6_ATTR_SC_NONE);
-		else
-			addattr32(&req.n, sizeof(req), IOAM6_ATTR_SC_ID,
-				  opts.sc_id);
+		} else {
+			__u32 id = (opts.cmd == IOAM6_CMD_NS_SET_SCHEMA) ?
+			            opts.sc_id : opts.gobsc_id;
+
+			addattr32(&req.n, sizeof(req), IOAM6_ATTR_SC_ID, id);
+		}
 		break;
 	case IOAM6_CMD_ADD_GOB_SCHEMA:
 		addattr32(&req.n, sizeof(req), IOAM6_ATTR_SC_ID, opts.gobsc_id);
@@ -410,6 +419,13 @@ int do_ioam6(int argc, char **argv)
 			opts.cmd = IOAM6_CMD_DEL_NAMESPACE;
 
 		} else if (strcmp(*argv, "set") == 0) {
+			unsigned int cmd = IOAM6_CMD_UNSPEC;
+			enum {
+				UNSPEC		= 0,
+				SCHEMA		= 1,
+				GOB_SCHEMA	= 2,
+			} schema_type = UNSPEC;
+
 			NEXT_ARG();
 
 			if (get_u16(&opts.ns_id, *argv, 0))
@@ -417,22 +433,42 @@ int do_ioam6(int argc, char **argv)
 
 			NEXT_ARG();
 
-			if (strcmp(*argv, "schema") != 0)
+			if (strcmp(*argv, "schema") == 0)
+				schema_type = SCHEMA;
+			else if (strcmp(*argv, "gobschema") == 0)
+				schema_type = GOB_SCHEMA;
+			else
 				invarg("Unknown", *argv);
 
 			NEXT_ARG();
 
 			if (strcmp(*argv, "none") == 0) {
-				opts.sc_none = true;
-
+				if (schema_type == SCHEMA) {
+					opts.sc_none = true;
+					cmd = IOAM6_CMD_NS_SET_SCHEMA;
+				} else {
+					cmd = IOAM6_CMD_NS_SET_GOB_SCHEMA;
+					opts.gobsc_none = true;
+				}
 			} else {
-				if (get_u32(&opts.sc_id, *argv, 0))
-					invarg("Invalid schema ID", *argv);
+				if (schema_type == SCHEMA) {
+					if (get_u32(&opts.sc_id, *argv, 0))
+						invarg("Invalid schema ID",
+						       *argv);
 
-				opts.sc_none = false;
+					cmd = IOAM6_CMD_NS_SET_SCHEMA;
+					opts.sc_none = false;
+				} else {
+					if (get_u32(&opts.gobsc_id, *argv, 0))
+						invarg("Invalid gobschema ID",
+						       *argv);
+
+					cmd = IOAM6_CMD_NS_SET_GOB_SCHEMA;
+					opts.gobsc_none = false;
+				}
 			}
 
-			opts.cmd = IOAM6_CMD_NS_SET_SCHEMA;
+			opts.cmd = cmd;
 
 		} else {
 			invarg("Unknown", *argv);
