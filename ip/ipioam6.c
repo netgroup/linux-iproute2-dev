@@ -111,6 +111,34 @@ static void print_schema(struct rtattr *attrs[])
 	print_nl();
 }
 
+static void print_gob_schema(struct rtattr *attrs[])
+{
+	struct rtattr *tb[IOAM6_TRACE_GOB_BPF_PROG_MAX + 1];
+	const char *progname = NULL;
+
+	print_uint(PRINT_ANY, "gobschema", "gobschema %u",
+		   rta_getattr_u32(attrs[IOAM6_ATTR_GOB_SC_ID]));
+
+	if (attrs[IOAM6_ATTR_NS_ID])
+		print_uint(PRINT_ANY, "namespace", " [namespace %u]",
+			   rta_getattr_u16(attrs[IOAM6_ATTR_NS_ID]));
+
+	parse_rtattr_nested(tb, IOAM6_TRACE_GOB_BPF_PROG_MAX,
+			    attrs[IOAM6_ATTR_GOB_SC_BPF]);
+
+	if (tb[IOAM6_TRACE_GOB_BPF_PROG_NAME])
+		progname = rta_getattr_str(tb[IOAM6_TRACE_GOB_BPF_PROG_NAME]);
+
+	if (is_json_context()) {
+		print_string(PRINT_JSON, "prog", NULL,
+			     progname ? : "<unknown>");
+	} else {
+		print_string(PRINT_FP, "prog", " prog %s",
+			     progname ? : "<unknown>");
+	}
+	print_nl();
+}
+
 static void print_trace(struct rtattr *attrs[])
 {
 	__u8 data[IOAM6_TRACE_DATA_SIZE_MAX];
@@ -165,6 +193,9 @@ static int process_msg(struct nlmsghdr *n, void *arg)
 		break;
 	case IOAM6_CMD_DUMP_SCHEMAS:
 		print_schema(attrs);
+		break;
+	case IOAM6_CMD_DUMP_GOB_SCHEMAS:
+		print_gob_schema(attrs);
 		break;
 	}
 	close_json_object();
@@ -292,6 +323,7 @@ static int ioam6_do_cmd(void)
 		break;
 	case IOAM6_CMD_DUMP_NAMESPACES:
 	case IOAM6_CMD_DUMP_SCHEMAS:
+	case IOAM6_CMD_DUMP_GOB_SCHEMAS:
 		dump = 1;
 		break;
 	case IOAM6_CMD_ADD_SCHEMA:
@@ -516,8 +548,8 @@ int do_ioam6(int argc, char **argv)
 		NEXT_ARG();
 
 		if (strcmp(*argv, "show") == 0) {
-			//opts.cmd = IOAM6_CMD_DUMP_SCHEMAS;
-			//TODO
+			opts.cmd = IOAM6_CMD_DUMP_GOB_SCHEMAS;
+
 		} else if (strcmp(*argv, "add") == 0) {
 			NEXT_ARG();
 
