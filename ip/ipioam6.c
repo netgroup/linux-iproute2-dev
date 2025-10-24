@@ -73,6 +73,10 @@ static void print_namespace(struct rtattr *attrs[])
 		print_uint(PRINT_ANY, "schema", " [schema %u]",
 			   rta_getattr_u32(attrs[IOAM6_ATTR_SC_ID]));
 
+	if (attrs[IOAM6_ATTR_GOB_SC_ID])
+		print_uint(PRINT_ANY, "gobschema", " [gobschema %u]",
+			   rta_getattr_u32(attrs[IOAM6_ATTR_GOB_SC_ID]));
+
 	if (attrs[IOAM6_ATTR_NS_DATA])
 		print_hex(PRINT_ANY, "data", ", data %#010x",
 			  rta_getattr_u32(attrs[IOAM6_ATTR_NS_DATA]));
