@@ -16,6 +16,10 @@
 #include <linux/ioam6.h>
 #include <linux/ioam6_genl.h>
 
+#include <linux/lwtunnel.h>
+
+#include "rt_names.h"
+#include "bpf_util.h"
 #include "utils.h"
 #include "ip_common.h"
 #include "libgenl.h"
@@ -47,6 +51,7 @@ static struct {
 	bool monitor;
 	unsigned int cmd;
 	__u32 sc_id;
+	__u32 gobsc_id;
 	__u32 ns_data;
 	__u64 ns_data_wide;
 	__u16 ns_id;
@@ -54,6 +59,8 @@ static struct {
 	bool has_ns_data_wide;
 	bool sc_none;
 	__u8 sc_data[IOAM6_MAX_SCHEMA_DATA_LEN];
+#define BUF_SIZE 512
+	char buf[BUF_SIZE];
 } opts;
 
 static void print_namespace(struct rtattr *attrs[])
@@ -186,9 +193,65 @@ static int ioam6_monitor_msg(struct rtnl_ctrl_data *ctrl, struct nlmsghdr *n,
 	return 0;
 }
 
+struct lwt_x {
+	struct rtattr *rta;
+	size_t len;
+};
+
+static void bpf_lwt_cb(void *lwt_ptr, int fd, const char *annotation)
+{
+	struct lwt_x *x = lwt_ptr;
+
+	rta_addattr32(x->rta, x->len, LWT_BPF_PROG_FD, fd);
+	rta_addattr_l(x->rta, x->len, LWT_BPF_PROG_NAME, annotation,
+		      strlen(annotation) + 1);
+}
+
+static const struct bpf_cfg_ops bpf_cb_ops = {
+	.ebpf_cb = bpf_lwt_cb,
+};
+
+static int ioam6_gob_schema_parse_bpf(char *buf, size_t len,
+				      int *argcp, char ***argvp, int attr,
+				      const enum bpf_prog_type bpf_type)
+{
+	struct rtattr *rta = (void *)buf;
+	struct bpf_cfg_in cfg = {
+		.type = bpf_type,
+		.argc = *argcp,
+		.argv = *argvp,
+	};
+	struct rtattr *nest;
+	struct lwt_x x = {
+		.rta = rta,
+		.len = len,
+	};
+	int err;
+
+	rta->rta_type = RTA_UNSPEC;
+	rta->rta_len = RTA_LENGTH(0);
+
+	nest = rta_nest(rta, len, attr);
+	err = bpf_parse_and_load_common(&cfg, &bpf_cb_ops, &x);
+	if (err < 0) {
+		fprintf(stderr, "Failed to parse eBPF program: %s\n",
+			strerror(-err));
+		return -1;
+	}
+	rta_nest_end(rta, nest);
+
+	*argcp = cfg.argc;
+	*argvp = cfg.argv;
+
+	printf("ok parsed bpf\n");
+
+	return 0;
+}
+
 static int ioam6_do_cmd(void)
 {
 	IOAM6_REQUEST(req, 1056, opts.cmd, NLM_F_REQUEST);
+	struct rtattr *rta;
 	int dump = 0;
 
 	if (genl_init_handle(&grth, IOAM6_GENL_NAME, &genl_family))
@@ -208,6 +271,8 @@ static int ioam6_do_cmd(void)
 	}
 
 	req.n.nlmsg_type = genl_family;
+
+	printf("before opts.cmd\n");
 
 	switch (opts.cmd) {
 	case IOAM6_CMD_ADD_NAMESPACE:
@@ -241,6 +306,15 @@ static int ioam6_do_cmd(void)
 		else
 			addattr32(&req.n, sizeof(req), IOAM6_ATTR_SC_ID,
 				  opts.sc_id);
+		break;
+	case IOAM6_CMD_ADD_GOB_SCHEMA:
+		addattr32(&req.n, sizeof(req), IOAM6_ATTR_SC_ID, opts.gobsc_id);
+
+		rta = (void *)opts.buf;
+		addraw_l(&req.n, BUF_SIZE, RTA_DATA(rta), RTA_PAYLOAD(rta));
+		break;
+	case IOAM6_CMD_DEL_GOB_SCHEMA:
+		addattr32(&req.n, sizeof(req), IOAM6_ATTR_SC_ID, opts.gobsc_id);
 		break;
 	}
 
@@ -398,6 +472,46 @@ int do_ioam6(int argc, char **argv)
 			invarg("Unknown", *argv);
 		}
 
+	} else if (strcmp(*argv, "gobschema") == 0) {
+		int bpf_ok = 0;
+
+		NEXT_ARG();
+
+		if (strcmp(*argv, "show") == 0) {
+			//opts.cmd = IOAM6_CMD_DUMP_SCHEMAS;
+			//TODO
+		} else if (strcmp(*argv, "add") == 0) {
+			NEXT_ARG();
+
+			if (get_u32(&opts.gobsc_id, *argv, 0))
+				invarg("Invalid gobschema ID", *argv);
+
+			NEXT_ARG();
+			if (strcmp(*argv, "endpoint") != 0)
+				invarg("Missing endpoint\n", *argv);
+
+			NEXT_ARG();
+
+			if (ioam6_gob_schema_parse_bpf(opts.buf, BUF_SIZE,
+						       &argc, &argv,
+						       IOAM6_ATTR_GOB_SC_BPF,
+						       BPF_PROG_TYPE_LWT_IN) < 0)
+				exit(-1);
+
+			printf("done parsing\n");
+			opts.cmd = IOAM6_CMD_ADD_GOB_SCHEMA;
+
+		} else if (strcmp(*argv, "del") == 0) {
+			NEXT_ARG();
+
+			if (get_u32(&opts.gobsc_id, *argv, 0))
+				invarg("Invalid gobschema ID", *argv);
+
+			opts.cmd = IOAM6_CMD_DEL_GOB_SCHEMA;
+
+		} else {
+			invarg("Unknown", *argv);
+		}
 	} else if (strcmp(*argv, "monitor") == 0) {
 		opts.monitor = true;
 
@@ -405,5 +519,6 @@ int do_ioam6(int argc, char **argv)
 		invarg("Unknown", *argv);
 	}
 
+	printf("before calling ioam6_do_cmd()\n");
 	return ioam6_do_cmd();
 }
