@@ -50,19 +50,15 @@ static int genl_family = -1;
 static struct {
 	bool monitor;
 	unsigned int cmd;
-	union {
-		__u32 sc_id;
-		__u32 gobsc_id;
-	};
+	__u32 sc_id;
+	__u32 gobsc_id;
 	__u32 ns_data;
 	__u64 ns_data_wide;
 	__u16 ns_id;
 	bool has_ns_data;
 	bool has_ns_data_wide;
-	union {
-		bool sc_none;
-		bool gobsc_none;
-	};
+	bool sc_none;
+	bool gobsc_none;
 	__u8 sc_data[IOAM6_MAX_SCHEMA_DATA_LEN];
 #define BUF_SIZE 512
 	char buf[BUF_SIZE];
@@ -303,25 +299,31 @@ static int ioam6_do_cmd(void)
 		addattr32(&req.n, sizeof(req), IOAM6_ATTR_SC_ID, opts.sc_id);
 		break;
 	case IOAM6_CMD_NS_SET_SCHEMA:
-	case IOAM6_CMD_NS_SET_GOB_SCHEMA:
 		addattr16(&req.n, sizeof(req), IOAM6_ATTR_NS_ID, opts.ns_id);
-		if (opts.sc_none) {
+		if (opts.sc_none)
 			addattr(&req.n, sizeof(req), IOAM6_ATTR_SC_NONE);
-		} else {
-			__u32 id = (opts.cmd == IOAM6_CMD_NS_SET_SCHEMA) ?
-			            opts.sc_id : opts.gobsc_id;
-
-			addattr32(&req.n, sizeof(req), IOAM6_ATTR_SC_ID, id);
-		}
+		else
+			addattr32(&req.n, sizeof(req), IOAM6_ATTR_SC_ID,
+				  opts.sc_id);
 		break;
 	case IOAM6_CMD_ADD_GOB_SCHEMA:
-		addattr32(&req.n, sizeof(req), IOAM6_ATTR_SC_ID, opts.gobsc_id);
+		addattr32(&req.n, sizeof(req), IOAM6_ATTR_GOB_SC_ID,
+			  opts.gobsc_id);
 
 		rta = TO_RTATTR(opts.buf);
 		addraw_l(&req.n, BUF_SIZE, RTA_DATA(rta), RTA_PAYLOAD(rta));
 		break;
 	case IOAM6_CMD_DEL_GOB_SCHEMA:
-		addattr32(&req.n, sizeof(req), IOAM6_ATTR_SC_ID, opts.gobsc_id);
+		addattr32(&req.n, sizeof(req), IOAM6_ATTR_GOB_SC_ID,
+			  opts.gobsc_id);
+		break;
+	case IOAM6_CMD_NS_SET_GOB_SCHEMA:
+		addattr16(&req.n, sizeof(req), IOAM6_ATTR_NS_ID, opts.ns_id);
+		if (opts.gobsc_none)
+			addattr(&req.n, sizeof(req), IOAM6_ATTR_GOB_SC_NONE);
+		else
+			addattr32(&req.n, sizeof(req), IOAM6_ATTR_GOB_SC_ID,
+				  opts.gobsc_id);
 		break;
 	}
 
