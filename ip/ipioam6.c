@@ -16,8 +16,6 @@
 #include <linux/ioam6.h>
 #include <linux/ioam6_genl.h>
 
-#include <linux/lwtunnel.h>
-
 #include "rt_names.h"
 #include "bpf_util.h"
 #include "utils.h"
@@ -229,29 +227,30 @@ static int ioam6_monitor_msg(struct rtnl_ctrl_data *ctrl, struct nlmsghdr *n,
 	return 0;
 }
 
-struct lwt_x {
+struct ioam6_gobsc_x {
 	struct rtattr *rta;
 	size_t len;
 };
 
-static void bpf_lwt_cb(void *lwt_ptr, int fd, const char *annotation)
+static void
+bpf_ioam6_gobsc_cb(void *ioam6_gobsc_ptr, int fd, const char *annotation)
 {
-	struct lwt_x *x = lwt_ptr;
+	struct ioam6_gobsc_x *x = ioam6_gobsc_ptr;
 
-	rta_addattr32(x->rta, x->len, LWT_BPF_PROG_FD, fd);
-	rta_addattr_l(x->rta, x->len, LWT_BPF_PROG_NAME, annotation,
-		      strlen(annotation) + 1);
+	rta_addattr32(x->rta, x->len, IOAM6_TRACE_GOB_BPF_PROG, fd);
+	rta_addattr_l(x->rta, x->len, IOAM6_TRACE_GOB_BPF_PROG_NAME,
+		      annotation, strlen(annotation) + 1);
 }
 
 static const struct bpf_cfg_ops bpf_cb_ops = {
-	.ebpf_cb = bpf_lwt_cb,
+	.ebpf_cb = bpf_ioam6_gobsc_cb,
 };
 
 #define TO_RTATTR(_buf) (struct rtattr *)((void *)(_buf))
 
-static int ioam6_gob_schema_bpf_parse(char *obuf, size_t len,
-				      int *argcp, char ***argvp, int attr,
-				      const enum bpf_prog_type bpf_type)
+static int ioam6_gobsc_bpf_parse(char *obuf, size_t len, int *argcp,
+				 char ***argvp, int attr,
+				 const enum bpf_prog_type bpf_type)
 {
 	struct rtattr *rta = TO_RTATTR(obuf);
 	struct bpf_cfg_in cfg = {
@@ -259,11 +258,11 @@ static int ioam6_gob_schema_bpf_parse(char *obuf, size_t len,
 		.argc = *argcp,
 		.argv = *argvp,
 	};
-	struct rtattr *nest;
-	struct lwt_x x = {
+	struct ioam6_gobsc_x x = {
 		.rta = rta,
 		.len = len,
 	};
+	struct rtattr *nest;
 	int err;
 
 	rta->rta_type = RTA_UNSPEC;
@@ -558,10 +557,10 @@ int do_ioam6(int argc, char **argv)
 
 			NEXT_ARG();
 
-			if (ioam6_gob_schema_bpf_parse(opts.buf, BUF_SIZE,
-						       &argc, &argv,
-						       IOAM6_ATTR_GOB_SC_BPF,
-						       BPF_PROG_TYPE_LWT_IN) < 0)
+			if (ioam6_gobsc_bpf_parse(opts.buf, BUF_SIZE,
+						  &argc, &argv,
+						  IOAM6_ATTR_GOB_SC_BPF,
+						  BPF_PROG_TYPE_IOAM6_GOB) < 0)
 				exit(-1);
 
 			opts.cmd = IOAM6_CMD_ADD_GOB_SCHEMA;
