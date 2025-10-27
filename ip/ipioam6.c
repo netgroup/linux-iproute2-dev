@@ -33,7 +33,10 @@ static void usage(void)
 		"	ip ioam schema show\n"
 		"	ip ioam schema add ID DATA\n"
 		"	ip ioam schema del ID\n"
-		"	ip ioam namespace set ID schema { ID | none }\n"
+		"	ip ioam gobschema show\n"
+		"	ip ioam gobschema add ID object PATH section SECTOIN_NAME\n"
+		"	ip ioam gobschema del ID\n"
+		"	ip ioam namespace set ID { schema | goschema } { ID | none }\n"
 		"	ip ioam monitor\n");
 	exit(-1);
 }
