@@ -1267,11 +1267,11 @@ static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 				duparg2("gobsize", *argv);
 
 			if (get_u16(&gob_size, *argv, 0) || !gob_size)
-				invarg("Invalid Global-Opaque block trace size",
+				invarg("Invalid Global-Opaque Block data size",
 				       *argv);
 
 			if (gob_size % 4)
-				invarg("Global-Opaque block trace size must be a 4-octet multiple",
+				invarg("Global-Opaque Block data size must be a 4-octet multiple",
 				       *argv);
 
 			if (gob_size > IOAM6_TRACE_GOB_DATA_SIZE_MAX)
