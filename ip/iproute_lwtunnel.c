@@ -380,7 +380,8 @@ static void print_encap_ioam6(FILE *fp, struct rtattr *encap)
 	print_null(PRINT_ANY, "prealloc", "prealloc ", NULL);
 	print_hex(PRINT_ANY, "type", "type %#08x ", ntohl(trace->type_be32) >> 8);
 	print_uint(PRINT_ANY, "ns", "ns %u ", ntohs(trace->namespace_id));
-	print_uint(PRINT_ANY, "size", "size %u ", trace->remlen * 4);
+	if (trace->remlen > 0)
+		print_uint(PRINT_ANY, "size", "size %u ", trace->remlen * 4);
 
 	if (!trace->type.gob)
 		return;
@@ -1286,8 +1287,10 @@ static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 		missarg("type");
 	if (!ns_found)
 		missarg("ns");
-	if (!trace_size)
-		missarg("size");
+
+	if (!trace_size && !gob_size) {
+		missarg("size or gobsize");
+	}
 
 	trace = calloc(1, sizeof(*trace));
 	if (!trace)
