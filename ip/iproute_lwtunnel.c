@@ -1320,7 +1320,7 @@ static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 			return -1;
 		}
 
-		gob->hdr = htonl((__u8)(gob_size / 4) << 24);
+		gob->hdr = htonl((gob_size / 4) << IOAM6_TRACE_GOB_LEN_SHIFT);
 
 		if (rta_addattr_l(rta, len, IOAM6_IPTUNNEL_TRACE_GOB, gob,
 				  sizeof(*gob))) {
