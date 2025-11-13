@@ -340,6 +340,7 @@ static void print_encap_ioam6(FILE *fp, struct rtattr *encap)
 	struct ioam6_trace_hdr *trace;
 	__u32 freq_k, freq_n;
 	__u32 gob_size;
+	__u32 type;
 	__u8 mode;
 
 	parse_rtattr_nested(tb, IOAM6_IPTUNNEL_MAX, encap);
@@ -378,7 +379,12 @@ static void print_encap_ioam6(FILE *fp, struct rtattr *encap)
 
 	print_null(PRINT_ANY, "trace", "trace ", NULL);
 	print_null(PRINT_ANY, "prealloc", "prealloc ", NULL);
-	print_hex(PRINT_ANY, "type", "type %#08x ", ntohl(trace->type_be32) >> 8);
+
+	type = ntohl(trace->type_be32);
+	if (type & ~0x07u)
+		print_hex(PRINT_ANY, "type", "type %#08x ",
+			  ntohl(trace->type_be32) >> 8);
+
 	print_uint(PRINT_ANY, "ns", "ns %u ", ntohs(trace->namespace_id));
 	if (trace->remlen > 0)
 		print_uint(PRINT_ANY, "size", "size %u ", trace->remlen * 4);
