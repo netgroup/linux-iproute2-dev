@@ -1282,8 +1282,18 @@ static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 		}
 	}
 
-	if (!trace_type)
+	if (gob_size) {
+		bool has_type = !!trace_type;
+		bool has_size = !!trace_size;
+
+		if (has_type ^ has_size) {
+			fprintf(stderr,
+				"Error: arguments \"type\" and \"size\" must be both set or both omitted\n");
+			exit(-1);
+		}
+	} else if (!trace_type) {
 		missarg("type");
+	}
 	if (!ns_found)
 		missarg("ns");
 
