@@ -43,11 +43,35 @@ ip-ioam \- IPv6 In-situ OAM (IOAM)
 .I ID
 
 .ti -8
+.B ip ioam gobschema show
+
+.ti -8
+.B ip ioam gobschema add
+.I ID
+.B object
+.I PATH
+.B section
+.I SECTION_NAME
+
+.ti -8
+.B ip ioam gobschema del
+.I ID
+
+.ti -8
 .B ip ioam namespace set
 .I ID
 .B schema
 .RI " { " ID " | "
 .BR none " }"
+
+.ti -8
+.B ip ioam namespace set
+.I ID
+.B gobschema
+.RI " { " ID " | "
+.BR none " } [ "
+.B gobimplied
+.IR SIZE " ]"
 
 .ti -8
 .B ip ioam monitor
@@ -60,6 +84,35 @@ Those parameters also include the mapping between an IOAM namespace and an IOAM
 schema.
 .PP
 The \fBip ioam monitor\fR command displays IOAM data received.
+.PP
+The \fBgobschema\fR commands configure the processing of the Global Opaque
+Block (GOB), a block of opaque data shared by all the nodes on the path and
+carried at the tail of the IOAM Pre-allocated Trace Option
+(draft-mayer-bpm-ioam-gob). A GOB schema binds a numerical \fIID\fR to an eBPF
+program of type \fBBPF_PROG_TYPE_IOAM6_GOB\fR, loaded from the section
+\fISECTION_NAME\fR of the ELF object file \fIPATH\fR. The program runs on the
+GOB payload of the packets of every IOAM namespace the GOB schema is linked to.
+.PP
+An IOAM namespace handles the GOB in one of two modes:
+.TP
+default mode
+\fBnamespace set\fR \fIID\fR \fBgobschema\fR \fIID\fR, without
+\fBgobimplied\fR. The GOB is present only in the packets that have the G bit
+set in the trace header. Its size and its schema are read from the GOB trailer,
+the last 4 octets of the option. The program runs when the schema in the
+trailer matches the \fIID\fR of the GOB schema linked to the namespace.
+.TP
+namespace-implied mode
+\fBnamespace set\fR \fIID\fR \fBgobschema\fR { \fIID\fR | \fBnone\fR }
+\fBgobimplied\fR \fISIZE\fR. Every packet of the namespace carries a GOB of
+\fISIZE\fR octets at the tail of the option, with no GOB trailer; the G bit is
+not used. \fISIZE\fR must be a non-zero multiple of 4, at most 240. With
+\fBgobschema none\fR the node knows the size of the GOB but runs no program
+on it.
+.PP
+The GOB schema and the implied size are always set together: a
+\fBnamespace set\fR ... \fBgobschema\fR command without \fBgobimplied\fR
+puts the namespace back in the default mode.
 
 .SH EXAMPLES
 .PP
@@ -70,6 +123,15 @@ The \fBip ioam monitor\fR command displays IOAM data received.
 .SS Link an existing IOAM schema (ID = 7) to an existing IOAM namespace (ID = 1)
 .nf
 # ip ioam namespace set 1 schema 7
+.PP
+.SS Load an eBPF program as GOB schema (ID = 170) and link it to an existing IOAM namespace (ID = 1) in the default mode
+.nf
+# ip ioam gobschema add 170 object gob.bpf.o section ioam6_gob
+# ip ioam namespace set 1 gobschema 170
+.PP
+.SS Link the same GOB schema to the IOAM namespace in the namespace-implied mode, with a GOB of 16 octets
+.nf
+# ip ioam namespace set 1 gobschema 170 gobimplied 16
 .SH SEE ALSO
 .br
 .BR ip-route (8)
