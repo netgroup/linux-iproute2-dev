@@ -36,7 +36,8 @@ static void usage(void)
 		"	ip ioam gobschema show\n"
 		"	ip ioam gobschema add ID object PATH section SECTOIN_NAME\n"
 		"	ip ioam gobschema del ID\n"
-		"	ip ioam namespace set ID { schema | gobschema } { ID | none }\n"
+		"	ip ioam namespace set ID schema { ID | none }\n"
+		"	ip ioam namespace set ID gobschema { ID | none } [ gobimplied SIZE ]\n"
 		"	ip ioam monitor\n");
 	exit(-1);
 }
@@ -53,6 +54,7 @@ static struct {
 	unsigned int cmd;
 	__u32 sc_id;
 	__u32 gobsc_id;
+	__u8 gob_implied_len;
 	__u32 ns_data;
 	__u64 ns_data_wide;
 	__u16 ns_id;
@@ -77,6 +79,10 @@ static void print_namespace(struct rtattr *attrs[])
 	if (attrs[IOAM6_ATTR_GOB_SC_ID])
 		print_uint(PRINT_ANY, "gobschema", " [gobschema %u]",
 			   rta_getattr_u32(attrs[IOAM6_ATTR_GOB_SC_ID]));
+
+	if (attrs[IOAM6_ATTR_GOB_IMPLIED_LEN])
+		print_uint(PRINT_ANY, "gobimplied", " [gobimplied %u]",
+			   rta_getattr_u8(attrs[IOAM6_ATTR_GOB_IMPLIED_LEN]));
 
 	if (attrs[IOAM6_ATTR_NS_DATA])
 		print_hex(PRINT_ANY, "data", ", data %#010x",
@@ -362,6 +368,14 @@ static int ioam6_do_cmd(void)
 		else
 			addattr32(&req.n, sizeof(req), IOAM6_ATTR_GOB_SC_ID,
 				  opts.gobsc_id);
+		/* namespace-implied GOB: the size travels with the schema, so
+		 * that both are applied together. Without it, the namespace
+		 * follows the default (trailer-based) mode.
+		 */
+		if (opts.gob_implied_len)
+			addattr8(&req.n, sizeof(req),
+				 IOAM6_ATTR_GOB_IMPLIED_LEN,
+				 opts.gob_implied_len);
 		break;
 	}
 
@@ -506,6 +520,31 @@ int do_ioam6(int argc, char **argv)
 					cmd = IOAM6_CMD_NS_SET_GOB_SCHEMA;
 					opts.gobsc_none = false;
 				}
+			}
+
+			if (schema_type == GOB_SCHEMA && NEXT_ARG_OK()) {
+				__u16 size;
+
+				NEXT_ARG_FWD();
+
+				if (strcmp(*argv, "gobimplied") != 0)
+					invarg("Unknown", *argv);
+
+				NEXT_ARG();
+
+				if (get_u16(&size, *argv, 0) || !size)
+					invarg("Invalid implied Global-Opaque Block size",
+					       *argv);
+
+				if (size % 4)
+					invarg("Implied Global-Opaque Block size must be a 4-octet multiple",
+					       *argv);
+
+				if (size > IOAM6_TRACE_GOB_DATA_SIZE_MAX)
+					invarg("Implied Global-Opaque Block size is too big",
+					       *argv);
+
+				opts.gob_implied_len = size;
 			}
 
 			opts.cmd = cmd;

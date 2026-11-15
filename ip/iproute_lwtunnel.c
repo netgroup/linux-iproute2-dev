@@ -389,13 +389,19 @@ static void print_encap_ioam6(FILE *fp, struct rtattr *encap)
 	if (trace->remlen > 0)
 		print_uint(PRINT_ANY, "size", "size %u ", trace->remlen * 4);
 
-	if (!trace->type.gob)
-		return;
+	if (trace->type.gob && tb[IOAM6_IPTUNNEL_TRACE_GOB]) {
+		gob = RTA_DATA(tb[IOAM6_IPTUNNEL_TRACE_GOB]);
+		gob_size = (ntohl(gob->hdr) >> 24) * 4;
+		/* Global-Opaque Block is preset, report the size of the trace
+		 * data
+		 */
+		print_uint(PRINT_ANY, "gobsize", "gobsize %u ", gob_size);
+	}
 
-	gob = RTA_DATA(tb[IOAM6_IPTUNNEL_TRACE_GOB]);
-	gob_size = (ntohl(gob->hdr) >> 24) * 4;
-	/* Global-Opaque Block is preset, report the size of the trace data */
-	print_uint(PRINT_ANY, "gobsize", "gobsize %u ", gob_size);
+	/* namespace-implied Global-Opaque Block: payload only, no trailer */
+	if (tb[IOAM6_IPTUNNEL_TRACE_GOB_IMPLIED])
+		print_uint(PRINT_ANY, "gobimplied", "gobimplied %u ",
+			   rta_getattr_u8(tb[IOAM6_IPTUNNEL_TRACE_GOB_IMPLIED]));
 }
 
 static const char *seg6_action_names[SEG6_LOCAL_ACTION_MAX + 1] = {
@@ -1136,7 +1142,7 @@ static int parse_ioam6_freq(char *buf, __u32 *freq_k, __u32 *freq_n)
 static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 			     char ***argvp)
 {
-	__u16 trace_ns, trace_size = 0, gob_size = 0;
+	__u16 trace_ns, trace_size = 0, gob_size = 0, gob_implied = 0;
 	struct ioam6_trace_gob_hdr *gob;
 	int ns_found = 0, argc = *argcp;
 	struct ioam6_trace_hdr *trace;
@@ -1283,12 +1289,39 @@ static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 			if (gob_size > IOAM6_TRACE_GOB_DATA_SIZE_MAX)
 				invarg("Globa-Opaque Block data size is too big",
 				       *argv);
+		} else if (strcmp(*argv, "gobimplied") == 0) {
+			/* namespace-implied Global-Opaque Block: the size is
+			 * the one bound to the namespace; no trailer is sent
+			 * and the G bit is left unset.
+			 */
+			NEXT_ARG();
+
+			if (gob_implied)
+				duparg2("gobimplied", *argv);
+
+			if (get_u16(&gob_implied, *argv, 0) || !gob_implied)
+				invarg("Invalid implied Global-Opaque Block size",
+				       *argv);
+
+			if (gob_implied % 4)
+				invarg("Implied Global-Opaque Block size must be a 4-octet multiple",
+				       *argv);
+
+			if (gob_implied > IOAM6_TRACE_GOB_DATA_SIZE_MAX)
+				invarg("Implied Global-Opaque Block size is too big",
+				       *argv);
 		} else {
 			break;
 		}
 	}
 
-	if (gob_size) {
+	if (gob_size && gob_implied) {
+		fprintf(stderr,
+			"Error: arguments \"gobsize\" and \"gobimplied\" are mutually exclusive\n");
+		exit(-1);
+	}
+
+	if (gob_size || gob_implied) {
 		bool has_type = !!trace_type;
 		bool has_size = !!trace_size;
 
@@ -1303,8 +1336,8 @@ static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 	if (!ns_found)
 		missarg("ns");
 
-	if (!trace_size && !gob_size) {
-		missarg("size or gobsize");
+	if (!trace_size && !gob_size && !gob_implied) {
+		missarg("size, gobsize or gobimplied");
 	}
 
 	trace = calloc(1, sizeof(*trace));
@@ -1315,6 +1348,9 @@ static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 	trace->namespace_id = htons(trace_ns);
 	trace->remlen = (__u8)(trace_size / 4);
 
+	/* the G bit signals the trailer-based GOB only; it is never set for a
+	 * namespace-implied GOB.
+	 */
 	trace->type.gob = !!gob_size;
 
 	if (rta_addattr32(rta, len, IOAM6_IPTUNNEL_FREQ_K, freq_k) ||
@@ -1344,6 +1380,13 @@ static int parse_encap_ioam6(struct rtattr *rta, size_t len, int *argcp,
 			free(trace);
 			return -1;
 		}
+	}
+
+	if (gob_implied &&
+	    rta_addattr8(rta, len, IOAM6_IPTUNNEL_TRACE_GOB_IMPLIED,
+			 gob_implied)) {
+		free(trace);
+		return -1;
 	}
 
 	*argcp = argc + 1;
